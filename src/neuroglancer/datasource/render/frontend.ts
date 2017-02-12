@@ -27,13 +27,12 @@ import {defineParameterizedVolumeChunkSource, MultiscaleVolumeChunkSource as Gen
 import {applyCompletionOffset, getPrefixMatchesWithDescriptions} from 'neuroglancer/util/completion';
 import {vec3} from 'neuroglancer/util/geom';
 import {openShardedHttpRequest, sendHttpRequest} from 'neuroglancer/util/http_request';
-import {parseArray, parseQueryStringParameters, verifyFloat, verifyInt, verifyOptionalInt, verifyObject, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
+import {parseArray, parseQueryStringParameters, verifyFloat, verifyInt, verifyObject, verifyObjectProperty, verifyOptionalString, verifyString} from 'neuroglancer/util/json';
+import {CancellablePromise, cancellableThen} from 'neuroglancer/util/promise';
 
 const VALID_ENCODINGS = new Set<string>(['jpg']);
 
 const TileChunkSource = defineParameterizedVolumeChunkSource(TileChunkSourceParameters);
-
-const VALID_STACK_STATES = new Set<string>(['COMPLETE']);
 
 interface OwnerInfo {
   owner: string;
@@ -44,6 +43,7 @@ interface StackInfo {
   lowerVoxelBound: vec3;
   upperVoxelBound: vec3;
   voxelResolution: vec3; /* in nm */
+  mipMapLevels: number;
   project: string;
 }
 
@@ -61,10 +61,8 @@ function parseOwnerInfo(obj: any): OwnerInfo {
 
   for (let stackObj of stackObjs) {
     let stackName = verifyObjectProperty(stackObj, 'stackId', parseStackName);
-    let stackInfo = parseStackInfo(stackObj);
-    if (stackInfo !== undefined) {
-      stacks.set(stackName, parseStackInfo(stackObj));
-    }
+
+    stacks.set(stackName, parseStackInfo(stackObj));
   }
 
   return {owner, stacks};
@@ -80,22 +78,19 @@ function parseStackOwner(stackIdObj: any): string {
   return verifyObjectProperty(stackIdObj, 'owner', verifyString);
 }
 
-function parseStackInfo(obj: any): StackInfo|undefined {
+function parseStackInfo(obj: any): StackInfo {
   verifyObject(obj);
-
-  let state = verifyObjectProperty(obj, 'state', verifyString);
-  if (!VALID_STACK_STATES.has(state)) {
-    return undefined;
-  }
-
   let lowerVoxelBound: vec3 = verifyObjectProperty(obj, 'stats', parseLowerVoxelBounds);
   let upperVoxelBound: vec3 = verifyObjectProperty(obj, 'stats', parseUpperVoxelBounds);
 
   let voxelResolution: vec3 = verifyObjectProperty(obj, 'currentVersion', parseStackVersionInfo);
 
+  let mipMapLevels: number =
+      verifyObjectProperty(obj, 'currentMipmapPathBuilder', parseMipMapLevels);
+
   let project: string = verifyObjectProperty(obj, 'stackId', parseStackProject);
 
-  return {lowerVoxelBound, upperVoxelBound, voxelResolution, project};
+  return {lowerVoxelBound, upperVoxelBound, voxelResolution, mipMapLevels, project};
 }
 
 function parseUpperVoxelBounds(stackStatsObj: any): vec3 {
@@ -145,6 +140,19 @@ function parseStackVersionInfo(stackVersionObj: any): vec3 {
   return voxelResolution;
 }
 
+function parseMipMapLevels(_currentMipMapPathBuilderObj: any): number {
+  let levels = 0;
+  /*
+  try {
+    levels = verifyObjectProperty(currentMipMapPathBuilderObj, 'numberOfLevels', verifyInt);
+  } catch (ignoredError) {
+    // TODO: Something better than console.log for passing messages?
+    console.log('No Mip Map Levels specified. Using default of 0.');
+  }
+  */
+  return levels;
+}
+
 function parseStackProject(stackIdObj: any): string {
   verifyObject(stackIdObj);
   return verifyObjectProperty(stackIdObj, 'project', verifyString);
@@ -181,8 +189,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     const stackInfo = ownerInfo.stacks.get(stack);
     if (stackInfo === undefined) {
       throw new Error(
-          `Specified stack ${JSON.stringify(stack)} is not one of the supported stacks: ` +
-          JSON.stringify(Array.from(ownerInfo.stacks.keys())));
+          `Specified stack ${JSON.stringify(stack)} is not one of the supported stacks ${JSON.stringify(Array.from(ownerInfo.stacks.keys()))}`);
     }
     this.stack = stack;
     this.stackInfo = stackInfo;
@@ -198,22 +205,15 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
     this.encoding = encoding;
 
     this.dims = vec3.create();
-
-    let tileSize = verifyOptionalInt(parameters['tilesize']);
-    if (tileSize === undefined) {
-      tileSize = 1024; // Default tile size is 1024 x 1024 
-    }
-    this.dims[0] = tileSize;
-    this.dims[1] = tileSize;
+    this.dims[0] = 512;
+    this.dims[1] = 512;
     this.dims[2] = 1;
   }
 
   getSources(volumeSourceOptions: VolumeSourceOptions) {
     let sources: VolumeChunkSource[][] = [];
 
-    let numLevels = computeStackHierarchy(this.stackInfo, this.dims[0]);
-
-    for (let level = 0; level < numLevels; level++) {
+    for (let level = 0; level <= this.stackInfo.mipMapLevels; level++) {
       let voxelSize = vec3.clone(this.stackInfo.voxelResolution);
       let chunkDataSize = vec3.fromValues(1, 1, 1);
       // tiles are NxMx1
@@ -261,26 +261,10 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
   }
 };
 
-export function computeStackHierarchy(stackInfo: StackInfo, tileSize: number) {
-  let maxBound = 0;
-  for (let i = 0; i < 2; i++) {
-    maxBound < stackInfo.upperVoxelBound[i] ? maxBound = stackInfo.upperVoxelBound[i] :
-                                              maxBound = maxBound;
-  }
-
-  let counter = 0;
-  while (maxBound > tileSize) {
-    maxBound = maxBound / 2;
-    counter++;
-  }
-
-  return counter;
-}
-
 export function getOwnerInfo(
     chunkManager: ChunkManager, hostnames: string[], owner: string): Promise<OwnerInfo> {
   return chunkManager.memoize.getUncounted(
-      {'type': 'render:getOwnerInfo', hostnames, owner},
+      {'hostnames': hostnames, 'owner': owner},
       () => sendHttpRequest(
                 openShardedHttpRequest(hostnames, `/render-ws/v1/owner/${owner}/stacks`), 'json')
                 .then(parseOwnerInfo));
@@ -299,7 +283,7 @@ export function getShardedVolume(chunkManager: ChunkManager, hostnames: string[]
   const parameters = parseQueryStringParameters(match[4] || '');
 
   return chunkManager.memoize.getUncounted(
-      {type: 'render:MultiscaleVolumeChunkSource', hostnames, path},
+      {'hostnames': hostnames, 'path': path},
       () => getOwnerInfo(chunkManager, hostnames, owner)
                 .then(
                     ownerInfo => new MultiscaleVolumeChunkSource(
@@ -317,7 +301,8 @@ export function getVolume(chunkManager: ChunkManager, path: string) {
 }
 
 export function stackAndProjectCompleter(
-    chunkManager: ChunkManager, hostnames: string[], path: string): Promise<CompletionResult> {
+    chunkManager: ChunkManager, hostnames: string[],
+    path: string): CancellablePromise<CompletionResult> {
   const stackMatch = path.match(/^(?:([^\/]+)(?:\/([^\/]+))\/?(?:\/([^\/]*)))?$/);
   if (stackMatch === null) {
     // URL has incorrect format, don't return any results.
@@ -328,7 +313,7 @@ export function stackAndProjectCompleter(
     // TODO, complete the project? for now reject
     return Promise.reject<CompletionResult>(null);
   }
-  return getOwnerInfo(chunkManager, hostnames, stackMatch[1]).then(ownerInfo => {
+  return cancellableThen(getOwnerInfo(chunkManager, hostnames, stackMatch[1]), ownerInfo => {
     let completions =
         getPrefixMatchesWithDescriptions(stackMatch[3], ownerInfo.stacks, x => x[0], x => {
           return `${x[1].project}`;
@@ -338,7 +323,7 @@ export function stackAndProjectCompleter(
 }
 
 export function volumeCompleter(
-    url: string, chunkManager: ChunkManager): Promise<CompletionResult> {
+    url: string, chunkManager: ChunkManager): CancellablePromise<CompletionResult> {
   let match = url.match(urlPattern);
   if (match === null) {
     // We don't yet have a full hostname.
@@ -347,8 +332,9 @@ export function volumeCompleter(
   let hostnames = [match[1]];
   let path = match[2];
 
-  return stackAndProjectCompleter(chunkManager, hostnames, path)
-      .then(completions => applyCompletionOffset(match![1].length + 1, completions));
+  return cancellableThen(
+      stackAndProjectCompleter(chunkManager, hostnames, path),
+      completions => applyCompletionOffset(match![1].length + 1, completions));
 }
 
 registerDataSourceFactory('render', {

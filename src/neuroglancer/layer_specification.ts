@@ -21,12 +21,12 @@ import {VoxelSize} from 'neuroglancer/navigation_state';
 import {VolumeType} from 'neuroglancer/sliceview/base';
 import {MultiscaleVolumeChunkSource} from 'neuroglancer/sliceview/frontend';
 import {StatusMessage} from 'neuroglancer/status';
+import {Trackable} from 'neuroglancer/url_hash_state';
 import {RefCounted} from 'neuroglancer/util/disposable';
 import {vec3} from 'neuroglancer/util/geom';
 import {verifyObject, verifyObjectProperty, verifyOptionalString} from 'neuroglancer/util/json';
-import {NullarySignal, Signal} from 'neuroglancer/util/signal';
-import {Trackable} from 'neuroglancer/util/trackable';
 import {RPC} from 'neuroglancer/worker_rpc';
+import {Signal} from 'signals';
 
 export function getVolumeWithStatusMessage(
     chunkManager: ChunkManager, x: string,
@@ -61,15 +61,16 @@ export class ManagedUserLayerWithSpecification extends ManagedUserLayer {
 };
 
 export class LayerListSpecification extends RefCounted implements Trackable {
-  changed = new NullarySignal();
-  voxelCoordinatesSet = new Signal<(coordinates: vec3) => void>();
+  changed = new Signal();
+  voxelCoordinatesSet = new Signal();
 
   constructor(
       public layerManager: LayerManager, public chunkManager: ChunkManager, public worker: RPC,
       public layerSelectedValues: LayerSelectedValues, public voxelSize: VoxelSize) {
     super();
-    this.registerDisposer(layerManager.layersChanged.add(this.changed.dispatch));
-    this.registerDisposer(layerManager.specificationChanged.add(this.changed.dispatch));
+    this.registerSignalBinding(layerManager.layersChanged.add(this.changed.dispatch, this.changed));
+    this.registerSignalBinding(
+        layerManager.specificationChanged.add(this.changed.dispatch, this.changed));
   }
 
   reset() { this.layerManager.clear(); }

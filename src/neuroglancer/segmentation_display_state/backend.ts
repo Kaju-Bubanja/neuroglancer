@@ -49,8 +49,9 @@ export class SegmentationLayerSharedObjectCounterpart extends SharedObjectCounte
 
     const scheduleUpdateChunkPriorities =
         () => { this.chunkManager.scheduleUpdateChunkPriorities(); };
-    this.registerDisposer(this.visibleSegments.changed.add(scheduleUpdateChunkPriorities));
-    this.registerDisposer(this.segmentEquivalences.changed.add(scheduleUpdateChunkPriorities));
-    this.visibilityCount.signChanged.add(scheduleUpdateChunkPriorities);
+    this.registerSignalBinding(this.visibleSegments.changed.add(scheduleUpdateChunkPriorities));
+    this.registerSignalBinding(this.segmentEquivalences.changed.add(scheduleUpdateChunkPriorities));
+    this.visibilityCount.becameZero.add(scheduleUpdateChunkPriorities);
+    this.visibilityCount.becameNonZero.add(scheduleUpdateChunkPriorities);
   }
 };

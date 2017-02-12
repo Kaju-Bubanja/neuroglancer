@@ -17,12 +17,12 @@
 import {HashSetUint64} from 'neuroglancer/gpu_hash/hash_table';
 import {Uint64} from 'neuroglancer/util/uint64';
 import {registerRPC, registerSharedObject, RPC, SharedObjectCounterpart} from 'neuroglancer/worker_rpc';
-import {Signal} from 'neuroglancer/util/signal';
+import {Signal} from 'signals';
 
 @registerSharedObject('Uint64Set')
 export class Uint64Set extends SharedObjectCounterpart {
   hashTable = new HashSetUint64();
-  changed = new Signal<(x: Uint64 | null, add: boolean) => void>();
+  changed = new Signal();
 
   static makeWithCounterpart(rpc: RPC) {
     let obj = new Uint64Set();

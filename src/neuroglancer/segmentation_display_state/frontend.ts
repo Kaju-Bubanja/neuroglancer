@@ -26,7 +26,7 @@ import {vec4} from 'neuroglancer/util/geom';
 import {Uint64} from 'neuroglancer/util/uint64';
 import {UseCount} from 'neuroglancer/util/use_count';
 import {SharedObject} from 'neuroglancer/worker_rpc';
-import {NullarySignal} from 'neuroglancer/util/signal';
+import {Signal} from 'signals';
 
 export class Uint64MapEntry {
   constructor(public key: Uint64, public value: Uint64) {}
@@ -36,7 +36,7 @@ export class Uint64MapEntry {
 export class SegmentSelectionState extends RefCounted {
   selectedSegment = new Uint64();
   hasSelectedSegment = false;
-  changed = new NullarySignal();
+  changed = new Signal();
 
   set(value: Uint64|null|undefined) {
     if (value == null) {
@@ -62,7 +62,7 @@ export class SegmentSelectionState extends RefCounted {
 
   bindTo(layerSelectedValues: LayerSelectedValues, userLayer: UserLayer) {
     let temp = new Uint64();
-    this.registerDisposer(layerSelectedValues.changed.add(() => {
+    this.registerSignalBinding(layerSelectedValues.changed.add(() => {
       let value = layerSelectedValues.get(userLayer);
       if (typeof value === 'number') {
         temp.low = value;
@@ -90,29 +90,31 @@ export interface SegmentationDisplayState3D extends SegmentationDisplayStateWith
 }
 
 export function registerRedrawWhenSegmentationDisplayStateChanged(
-    displayState: SegmentationDisplayState, renderLayer: {redrawNeeded: NullarySignal}&RefCounted) {
-  const dispatchRedrawNeeded = renderLayer.redrawNeeded.dispatch;
-  renderLayer.registerDisposer(displayState.segmentColorHash.changed.add(dispatchRedrawNeeded));
-  renderLayer.registerDisposer(displayState.visibleSegments.changed.add(dispatchRedrawNeeded));
-  renderLayer.registerDisposer(displayState.segmentEquivalences.changed.add(dispatchRedrawNeeded));
-  renderLayer.registerDisposer(
+    displayState: SegmentationDisplayState, renderLayer: {redrawNeeded: Signal}&RefCounted) {
+  let dispatchRedrawNeeded = () => { renderLayer.redrawNeeded.dispatch(); };
+  renderLayer.registerSignalBinding(
+      displayState.segmentColorHash.changed.add(dispatchRedrawNeeded));
+  renderLayer.registerSignalBinding(displayState.visibleSegments.changed.add(dispatchRedrawNeeded));
+  renderLayer.registerSignalBinding(
+      displayState.segmentEquivalences.changed.add(dispatchRedrawNeeded));
+  renderLayer.registerSignalBinding(
       displayState.segmentSelectionState.changed.add(dispatchRedrawNeeded));
 }
 
 export function registerRedrawWhenSegmentationDisplayStateWithAlphaChanged(
     displayState: SegmentationDisplayStateWithAlpha,
-    renderLayer: {redrawNeeded: NullarySignal}&RefCounted) {
+    renderLayer: {redrawNeeded: Signal}&RefCounted) {
   registerRedrawWhenSegmentationDisplayStateChanged(displayState, renderLayer);
-  renderLayer.registerDisposer(
-      displayState.objectAlpha.changed.add(renderLayer.redrawNeeded.dispatch));
+  let dispatchRedrawNeeded = () => { renderLayer.redrawNeeded.dispatch(); };
+  renderLayer.registerSignalBinding(displayState.objectAlpha.changed.add(dispatchRedrawNeeded));
 }
 
 export function registerRedrawWhenSegmentationDisplayState3DChanged(
-    displayState: SegmentationDisplayState3D,
-    renderLayer: {redrawNeeded: NullarySignal}&RefCounted) {
+    displayState: SegmentationDisplayState3D, renderLayer: {redrawNeeded: Signal}&RefCounted) {
   registerRedrawWhenSegmentationDisplayStateWithAlphaChanged(displayState, renderLayer);
-  renderLayer.registerDisposer(
-      displayState.objectToDataTransform.changed.add(renderLayer.redrawNeeded.dispatch));
+  let dispatchRedrawNeeded = () => { renderLayer.redrawNeeded.dispatch(); };
+  renderLayer.registerSignalBinding(
+      displayState.objectToDataTransform.changed.add(dispatchRedrawNeeded));
 }
 
 /**

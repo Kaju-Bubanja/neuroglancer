@@ -16,10 +16,12 @@
 
 import {makeExtraKeyBindings} from 'my-neuroglancer-project/extra_key_bindings';
 import {navigateToOrigin} from 'my-neuroglancer-project/navigate_to_origin';
-import {setupDefaultViewer} from 'neuroglancer/ui/default_viewer_setup';
+import {makeDefaultKeyBindings} from 'neuroglancer/default_key_bindings';
+import {makeDefaultViewer} from 'neuroglancer/default_viewer';
 
 window.addEventListener('DOMContentLoaded', () => {
-  const viewer = setupDefaultViewer();
+  let viewer = (<any>window)['viewer'] = makeDefaultViewer();
+  makeDefaultKeyBindings(viewer.keyMap);
   makeExtraKeyBindings(viewer.keyMap);
   viewer.keyCommands.set('navigate-to-origin', navigateToOrigin);
 });

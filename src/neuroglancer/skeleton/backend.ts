@@ -58,7 +58,7 @@ export class SkeletonChunk extends Chunk {
   }
 };
 
-export abstract class SkeletonSource extends ChunkSource {
+export class SkeletonSource extends ChunkSource {
   chunks: Map<string, SkeletonChunk>;
   getChunk(objectId: Uint64) {
     const key = getObjectKey(objectId);
@@ -72,7 +72,7 @@ export abstract class SkeletonSource extends ChunkSource {
   }
 };
 
-export abstract class ParameterizedSkeletonSource<Parameters> extends SkeletonSource {
+export class ParameterizedSkeletonSource<Parameters> extends SkeletonSource {
   parameters: Parameters;
   constructor(rpc: RPC, options: any) {
     super(rpc, options);
@@ -87,9 +87,8 @@ export class SkeletonLayer extends SegmentationLayerSharedObjectCounterpart {
   constructor(rpc: RPC, options: any) {
     super(rpc, options);
     this.source = this.registerDisposer(rpc.getRef<SkeletonSource>(options['source']));
-    this.registerDisposer(this.chunkManager.recomputeChunkPriorities.add(() => {
-      this.updateChunkPriorities();
-    }));
+    this.registerSignalBinding(
+        this.chunkManager.recomputeChunkPriorities.add(this.updateChunkPriorities, this));
   }
 
   private updateChunkPriorities() {

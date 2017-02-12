@@ -110,12 +110,8 @@ export class SliceViewPanel extends RenderedDataPanel {
     super(context, element, viewer);
 
     this.registerDisposer(sliceView);
-    this.registerDisposer(sliceView.viewChanged.add(() => {
-      context.scheduleRedraw();
-    }));
-    this.registerDisposer(viewer.showAxisLines.changed.add(() => {
-      this.scheduleRedraw();
-    }));
+    this.registerSignalBinding(sliceView.viewChanged.add(context.scheduleRedraw, context));
+    this.registerSignalBinding(viewer.showAxisLines.changed.add(() => { this.scheduleRedraw(); }));
 
     {
       let scaleBar = this.scaleBarWidget.element;

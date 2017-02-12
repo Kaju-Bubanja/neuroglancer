@@ -14,11 +14,10 @@
  * limitations under the License.
  */
 
-import {CANCELED, uncancelableToken} from 'neuroglancer/util/cancellation';
 import {removeFromParent} from 'neuroglancer/util/dom';
 import {parseArray, verifyObject, verifyString} from 'neuroglancer/util/json';
+import {callFinally, makeCancellablePromise} from 'neuroglancer/util/promise';
 import {getRandomHexString} from 'neuroglancer/util/random';
-import {Signal} from 'neuroglancer/util/signal';
 
 export const AUTH_SERVER = 'https://accounts.google.com/o/oauth2/auth';
 
@@ -35,15 +34,16 @@ export function embedRelayFrame(proxyName: string, rpcToken: string) {
   document.body.appendChild(iframe);
 }
 
+interface PromiseCallbacks<T> {
+  resolve: (x: T) => void;
+  reject: (x: string) => void;
+}
+
 export interface Token {
   accessToken: string;
   expiresIn: string;
   tokenType: string;
   scope: string;
-}
-
-class PendingRequest {
-  finished = new Signal<(token?: Token, error?: any) => void>();
 }
 
 class AuthHandler {
@@ -52,7 +52,7 @@ class AuthHandler {
   relayReadyService = `oauth2relayReady:${this.rpcToken}`;
   oauth2CallbackService = `oauth2callback:${this.rpcToken}`;
   relayReadyPromise: Promise<void>;
-  pendingRequests = new Map<string, PendingRequest>();
+  pendingRequests = new Map<string, PromiseCallbacks<any>>();
 
   constructor() {
     embedRelayFrame(this.proxyName, this.rpcToken);
@@ -92,20 +92,20 @@ class AuthHandler {
             if (state === undefined) {
               throw new Error(`oauth2callback: State argument is missing.`);
             }
-            let request = this.pendingRequests.get(state);
-            if (request === undefined) {
+            let callbacks = this.pendingRequests.get(state);
+            if (callbacks === undefined) {
               // Request may have been cancelled.
               return;
             }
             let error = params.get('error');
             if (error !== undefined) {
+              this.pendingRequests.delete(state);
               let errorSubtype = params.get('error_subtype');
               let fullMessage = error;
               if (errorSubtype !== undefined) {
                 fullMessage += ': ' + errorSubtype;
               }
-              request.finished.dispatch(
-                  undefined, new Error(`Error obtaining Google OAuth2 token: ${fullMessage}`));
+              callbacks.reject(fullMessage);
               return;
             }
             let accessToken = params.get('access_token');
@@ -116,7 +116,8 @@ class AuthHandler {
                 scope === undefined) {
               throw new Error(`oauth2callback: URL lacks expected parameters.`);
             }
-            request.finished.dispatch({
+            this.pendingRequests.delete(state);
+            callbacks.resolve({
               accessToken: accessToken,
               tokenType: tokenType,
               expiresIn: expiresIn,
@@ -132,11 +133,12 @@ class AuthHandler {
     });
   }
 
-  addPendingRequest(state: string) {
-    let request = new PendingRequest();
-    this.pendingRequests.set(state, request);
-    request.finished.add(() => { this.pendingRequests.delete(state); });
-    return request;
+  getAuthPromise(state: string) {
+    let promise = makeCancellablePromise<Token>((resolve, reject) => {
+      this.pendingRequests.set(state, {resolve, reject});
+    });
+    callFinally(promise, () => { this.pendingRequests.delete(state); });
+    return promise;
   }
 
   makeAuthRequestUrl(options: {
@@ -174,7 +176,7 @@ class AuthHandler {
     }
     return url;
   }
-}
+};
 
 
 let authHandlerInstance: AuthHandler;
@@ -186,20 +188,14 @@ function authHandler() {
   return authHandlerInstance;
 }
 
-/**
- * Obtain a Google OAuth2 authentication token.
- * @return A Promise that resolves to an authentication token.
- */
-export function authenticateGoogleOAuth2(
-    options: {
-      clientId: string,
-      scopes: string[],
-      approvalPrompt?: 'force' | 'auto',
-      loginHint?: string,
-      immediate?: boolean,
-      authUser?: number,
-    },
-    cancellationToken = uncancelableToken) {
+export function authenticateGoogleOAuth2(options: {
+  clientId: string,
+  scopes: string[],
+  approvalPrompt?: 'force' | 'auto',
+  loginHint?: string,
+  immediate?: boolean,
+  authUser?: number,
+}) {
   const state = getRandomHexString();
   const handler = authHandler();
   const url = handler.makeAuthRequestUrl({
@@ -211,41 +207,22 @@ export function authenticateGoogleOAuth2(
     immediate: options.immediate,
     authUser: options.authUser,
   });
-  const request = handler.addPendingRequest(state);
-  const promise = new Promise<Token>((resolve, reject) => {
-    request.finished.add((token, error) => {
-      if (token !== undefined) {
-        resolve(token);
-      } else {
-        reject(error);
-      }
-    });
-  });
-  request.finished.add(cancellationToken.add(() => {
-    request.finished.dispatch(undefined, CANCELED);
-  }));
+  let promise = handler.getAuthPromise(state);
+
   if (options.immediate) {
-    // For immediate mode auth, we can wait until the relay is ready, since we aren't opening a new
+    // For immediate mode auth, we can wait until the relay is ready, since we
+    // aren't opening a new
     // window.
     handler.relayReadyPromise.then(() => {
-      if (cancellationToken.isCanceled) {
-        return;
-      }
-      const iframe = document.createElement('iframe');
+      let iframe = document.createElement('iframe');
       iframe.src = url;
       iframe.style.display = 'none';
       document.body.appendChild(iframe);
-      request.finished.add(() => {
-        removeFromParent(iframe);
-      });
+      callFinally(promise, () => { removeFromParent(iframe); });
     });
   } else {
-    if (!cancellationToken.isCanceled) {
-      const newWindow = open(url);
-      request.finished.add(() => {
-        newWindow.close();
-      });
-    }
+    let newWindow = open(url);
+    callFinally(promise, () => { newWindow.close(); });
   }
   return promise;
 }

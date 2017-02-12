@@ -20,7 +20,7 @@ import {RenderLayer as RenderLayerInterface, SLICEVIEW_RENDERLAYER_RPC_ID, SLICE
 import {ChunkLayout} from 'neuroglancer/sliceview/chunk_layout';
 import {vec3, vec3Key} from 'neuroglancer/util/geom';
 import {registerRPC, registerSharedObject, RPC, SharedObjectCounterpart} from 'neuroglancer/worker_rpc';
-import {NullarySignal} from 'neuroglancer/util/signal';
+import {Signal} from 'signals';
 
 const BASE_PRIORITY = -1e12;
 const SCALE_PRIORITY_MULTIPLIER = 1e9;
@@ -41,17 +41,17 @@ export class SliceView extends SliceViewBase {
     this.initializeSharedObject(rpc, options['id']);
     this.chunkManager =
         this.registerDisposer((<ChunkManager>rpc.get(options['chunkManager'])).addRef());
-    this.registerDisposer(
-      this.chunkManager.recomputeChunkPriorities.add(() => { this.updateVisibleChunks(); }));
+    this.registerSignalBinding(
+        this.chunkManager.recomputeChunkPriorities.add(this.updateVisibleChunks, this));
   }
 
   onViewportChanged() { this.chunkManager.scheduleUpdateChunkPriorities(); }
 
-  handleLayerChanged = (() => {
+  handleLayerChanged() {
     if (this.hasValidViewport) {
       this.chunkManager.scheduleUpdateChunkPriorities();
     }
-  });
+  }
 
   updateVisibleChunks() {
     const globalCenter = this.centerDataPosition;
@@ -81,7 +81,7 @@ export class SliceView extends SliceViewBase {
 
   removeVisibleLayer(layer: RenderLayer) {
     this.visibleLayers.delete(layer);
-    layer.layerChanged.remove(this.handleLayerChanged);
+    layer.layerChanged.remove(this.handleLayerChanged, this);
     this.visibleSourcesStale = true;
     if (this.hasValidViewport) {
       this.chunkManager.scheduleUpdateChunkPriorities();
@@ -94,7 +94,7 @@ export class SliceView extends SliceViewBase {
     }
     super.disposed();
   }
-}
+};
 
 registerRPC('SliceView.updateView', function(x) {
   let obj = this.get(x.id);
@@ -109,7 +109,7 @@ registerRPC('SliceView.addVisibleLayer', function(x) {
   let obj = <SliceView>this.get(x['id']);
   let layer = <RenderLayer>this.get(x['layerId']);
   obj.visibleLayers.set(layer, []);
-  layer.layerChanged.add(obj.handleLayerChanged);
+  layer.layerChanged.add(obj.handleLayerChanged, obj);
   obj.visibleSourcesStale = true;
   if (obj.hasValidViewport) {
     obj.chunkManager.scheduleUpdateChunkPriorities();
@@ -168,9 +168,9 @@ export class VolumeChunk extends Chunk {
 
   freeSystemMemory() { this.data = null; }
   toString() { return this.source!.toString() + ':' + vec3Key(this.chunkGridPosition); }
-}
+};
 
-export abstract class VolumeChunkSource extends ChunkSource implements VolumeChunkSourceInterface {
+export class VolumeChunkSource extends ChunkSource implements VolumeChunkSourceInterface {
   spec: VolumeChunkSpecification;
   constructor(rpc: RPC, options: any) {
     super(rpc, options);
@@ -234,13 +234,13 @@ export abstract class VolumeChunkSource extends ChunkSource implements VolumeChu
 
     return chunkPosition;
   }
-}
+};
 
 @registerSharedObject(SLICEVIEW_RENDERLAYER_RPC_ID)
 export class RenderLayer extends SharedObjectCounterpart implements RenderLayerInterface {
   rpcId: number;
   sources: VolumeChunkSource[][];
-  layerChanged = new NullarySignal();
+  layerChanged = new Signal();
 
   constructor(rpc: RPC, options: any) {
     super(rpc, options);
@@ -255,7 +255,7 @@ export class RenderLayer extends SharedObjectCounterpart implements RenderLayerI
       }
     }
   }
-}
+};
 
 /**
  * Extends VolumeChunkSource with a parameters member.
@@ -263,10 +263,10 @@ export class RenderLayer extends SharedObjectCounterpart implements RenderLayerI
  * Subclasses should be decorated with
  * src/neuroglancer/chunk_manager/backend.ts:registerChunkSource.
  */
-export abstract class ParameterizedVolumeChunkSource<Parameters> extends VolumeChunkSource {
+export class ParameterizedVolumeChunkSource<Parameters> extends VolumeChunkSource {
   parameters: Parameters;
   constructor(rpc: RPC, options: any) {
     super(rpc, options);
     this.parameters = options['parameters'];
   }
-}
+};

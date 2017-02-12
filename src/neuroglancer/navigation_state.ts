@@ -17,12 +17,12 @@
 import {RefCounted} from 'neuroglancer/util/disposable';
 import {mat3, mat4, quat, vec3} from 'neuroglancer/util/geom';
 import {parseFiniteVec, verifyObject, verifyObjectProperty} from 'neuroglancer/util/json';
-import {NullarySignal} from 'neuroglancer/util/signal';
+import {Signal} from 'signals';
 
 export class VoxelSize extends RefCounted {
   size: vec3;
   valid: boolean;
-  changed = new NullarySignal();
+  changed = new Signal();
   constructor(voxelSize?: vec3) {
     super();
     let valid = true;
@@ -88,7 +88,7 @@ export class SpatialPosition extends RefCounted {
   spatialCoordinates: vec3;
   spatialCoordinatesValid: boolean;
   private voxelCoordinates: vec3|null = null;
-  changed = new NullarySignal();
+  changed = new Signal();
   constructor(voxelSize?: VoxelSize, spatialCoordinates?: vec3) {
     super();
     if (voxelSize == null) {
@@ -105,7 +105,7 @@ export class SpatialPosition extends RefCounted {
     this.spatialCoordinatesValid = spatialCoordinatesValid;
 
     this.registerDisposer(voxelSize);
-    this.registerDisposer(voxelSize.changed.add(() => { this.handleVoxelSizeChanged(); }));
+    this.registerSignalBinding(voxelSize.changed.add(this.handleVoxelSizeChanged, this));
   }
 
   get valid() { return this.spatialCoordinatesValid && this.voxelSize.valid; }
@@ -238,7 +238,7 @@ function quaternionIsIdentity(quat: quat) {
 
 export class OrientationState extends RefCounted {
   orientation: quat;
-  changed = new NullarySignal();
+  changed = new Signal();
 
   constructor(orientation?: quat) {
     super();
@@ -304,7 +304,7 @@ export class OrientationState extends RefCounted {
   static makeRelative(peer: OrientationState, peerToSelf: quat) {
     let self = new OrientationState(quat.multiply(quat.create(), peer.orientation, peerToSelf));
     let updatingPeer = false;
-    self.registerDisposer(peer.changed.add(() => {
+    self.registerSignalBinding(peer.changed.add(() => {
       if (!updatingPeer) {
         updatingSelf = true;
         quat.multiply(self.orientation, peer.orientation, peerToSelf);
@@ -314,7 +314,7 @@ export class OrientationState extends RefCounted {
     }));
     let updatingSelf = false;
     const selfToPeer = quat.invert(quat.create(), peerToSelf);
-    self.registerDisposer(self.changed.add(() => {
+    self.registerSignalBinding(self.changed.add(() => {
       if (!updatingSelf) {
         updatingPeer = true;
         quat.multiply(peer.orientation, self.orientation, selfToPeer);
@@ -329,7 +329,7 @@ export class OrientationState extends RefCounted {
 export class Pose extends RefCounted {
   position: SpatialPosition;
   orientation: OrientationState;
-  changed = new NullarySignal();
+  changed = new Signal();
   constructor(position?: SpatialPosition, orientation?: OrientationState) {
     super();
     if (position == null) {
@@ -342,8 +342,8 @@ export class Pose extends RefCounted {
     this.orientation = orientation;
     this.registerDisposer(this.position);
     this.registerDisposer(this.orientation);
-    this.registerDisposer(this.position.changed.add(this.changed.dispatch));
-    this.registerDisposer(this.orientation.changed.add(this.changed.dispatch));
+    this.registerSignalBinding(this.position.changed.add(this.changed.dispatch, this.changed));
+    this.registerSignalBinding(this.orientation.changed.add(this.changed.dispatch, this.changed));
   }
 
   get valid() { return this.position.valid; }
@@ -354,6 +354,11 @@ export class Pose extends RefCounted {
   reset() {
     this.position.reset();
     this.orientation.reset();
+  }
+
+  disposed() {
+    this.position.changed.remove(this.changed.dispatch, this.changed);
+    super.disposed();
   }
 
   toMat4(mat: mat4) {
@@ -466,7 +471,7 @@ export class TrackableZoomState {
       this.changed.dispatch();
     }
   }
-  changed = new NullarySignal();
+  changed = new Signal();
 
   toJSON() {
     let {value_, defaultValue} = this;
@@ -496,8 +501,9 @@ export class TrackableZoomState {
 };
 
 export class NavigationState extends RefCounted {
-  changed = new NullarySignal();
+  changed = new Signal();
   zoomFactor: TrackableZoomState;
+  needChange = true;
 
   constructor(public pose = new Pose(), zoomFactor: number|TrackableZoomState = Number.NaN) {
     super();
@@ -507,9 +513,9 @@ export class NavigationState extends RefCounted {
       this.zoomFactor = zoomFactor;
     }
     this.registerDisposer(pose);
-    this.registerDisposer(this.pose.changed.add(() => { this.changed.dispatch(); }));
-    this.registerDisposer(this.zoomFactor.changed.add(() => { this.changed.dispatch(); }));
-    this.registerDisposer(
+    this.registerSignalBinding(this.pose.changed.add(() => { this.changed.dispatch(); }));
+    this.registerSignalBinding(this.zoomFactor.changed.add(() => { this.changed.dispatch(); }));
+    this.registerSignalBinding(
         this.voxelSize.changed.add(() => { this.handleVoxelSizeChanged(); }));
     this.handleVoxelSizeChanged();
   }

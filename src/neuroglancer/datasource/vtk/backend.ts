@@ -30,11 +30,9 @@ function parseVTKFromArrayBuffer(buffer: ArrayBuffer) {
 
 registerSingleMeshFactory('vtk', {
   description: 'VTK',
-  getMesh: (chunkManager, url, getPriority, cancellationToken) =>
+  getMesh: (chunkManager, url, getPriority) =>
                GenericFileSource
-                   .getData(
-                       chunkManager.addRef(), parseVTKFromArrayBuffer, url, getPriority,
-                       cancellationToken)
+                   .getData(chunkManager.addRef(), parseVTKFromArrayBuffer, url, getPriority)
                    .then(mesh => {
                      let result: SingleMesh = {
                        info: {

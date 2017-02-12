@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-import {Trackable} from 'neuroglancer/util/trackable';
-import {NullarySignal} from 'neuroglancer/util/signal';
+import {Trackable} from 'neuroglancer/url_hash_state';
+import {Signal} from 'signals';
 
 export class WatchableValue<T> {
   get value() { return this.value_; }
@@ -25,7 +25,7 @@ export class WatchableValue<T> {
       this.changed.dispatch();
     }
   }
-  changed = new NullarySignal();
+  changed = new Signal();
   constructor(protected value_: T) {}
 };
 

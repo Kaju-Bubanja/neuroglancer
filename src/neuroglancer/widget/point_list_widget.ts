@@ -23,7 +23,7 @@ import {AnnotationPointList} from 'neuroglancer/annotation/point_list';
 import {WatchableValue} from 'neuroglancer/trackable_value';
 import {RefCounted} from 'neuroglancer/util/disposable';
 import {removeChildren, removeFromParent} from 'neuroglancer/util/dom';
-import {Signal} from 'neuroglancer/util/signal';
+import {Signal} from 'signals';
 
 require('neuroglancer/noselect.css');
 require('./point_list_widget.css');
@@ -33,7 +33,7 @@ export class PointListWidget extends RefCounted {
   private clearButton = document.createElement('button');
   private itemContainer = document.createElement('div');
   generation = -1;
-  pointSelected = new Signal<(index: number) => void>();
+  pointSelected = new Signal();
   private visible_ = false;
 
   constructor(
@@ -47,7 +47,7 @@ export class PointListWidget extends RefCounted {
     itemContainer.className = 'neuroglancer-item-container neuroglancer-select-text';
     element.appendChild(clearButton);
     element.appendChild(itemContainer);
-    this.registerDisposer(pointList.changed.add(() => { this.maybeUpdate(); }));
+    this.registerSignalBinding(pointList.changed.add(this.maybeUpdate, this));
   }
 
   get visible() { return this.visible_; }

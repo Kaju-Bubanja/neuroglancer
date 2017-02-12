@@ -92,9 +92,7 @@ class LayerWidget extends RefCounted {
     });
     this.setupDropdownElement();
     this.handleLayerChanged();
-    this.registerDisposer(layer.layerChanged.add(() => {
-      this.handleLayerChanged();
-    }));
+    this.registerSignalBinding(layer.layerChanged.add(this.handleLayerChanged, this));
     element.appendChild(dropdownElement);
 
     this.registerEventListener(element, 'mouseenter', () => {
@@ -174,12 +172,10 @@ export class LayerPanel extends RefCounted {
   constructor(public element: HTMLElement, public manager: LayerListSpecification) {
     super();
     element.className = 'layer-panel';
-    this.registerDisposer(manager.layerSelectedValues.changed.add(() => {
-      this.handleLayerValuesChanged();
-    }));
-    this.registerDisposer(manager.layerManager.layersChanged.add(() => {
-      this.handleLayersChanged();
-    }));
+    this.registerSignalBinding(
+        manager.layerSelectedValues.changed.add(this.handleLayerValuesChanged, this));
+    this.registerSignalBinding(
+        manager.layerManager.layersChanged.add(this.handleLayersChanged, this));
     let addButton = this.addButton = document.createElement('button');
     addButton.className = 'layer-add-button';
     addButton.title = 'Add layer';

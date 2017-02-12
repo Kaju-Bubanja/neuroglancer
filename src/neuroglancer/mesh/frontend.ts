@@ -148,13 +148,12 @@ export class MeshLayer extends PerspectiveViewRenderLayer {
     let shader = this.getShader(renderContext.emitter);
     shader.bind();
     meshShaderManager.beginLayer(gl, shader, renderContext);
-
+    
     let objectChunks = this.source.fragmentSource.objectChunks;
 
     let {pickIDs} = renderContext;
 
     const objectToDataMatrix = this.displayState.objectToDataTransform.transform;
-
     forEachSegmentToDraw(displayState, objectChunks, (rootObjectId, objectId, fragments) => {
       if (renderContext.emitColor) {
         meshShaderManager.setColor(gl, shader, getObjectColor(displayState, rootObjectId, alpha));

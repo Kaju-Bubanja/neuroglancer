@@ -145,6 +145,7 @@ export abstract class RenderedDataPanel extends RenderedPanel {
         this.startDragViewport(e);
       }
     } else if (e.button === 2) {
+      // this is responsible for rightclick behaviour
       let {mouseState} = this.viewer;
       if (mouseState.updateUnconditionally()) {
         let position = this.navigationState.pose.position;

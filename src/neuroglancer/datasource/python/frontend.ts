@@ -160,7 +160,7 @@ export class MultiscaleVolumeChunkSource implements GenericMultiscaleVolumeChunk
 
 export function getShardedVolume(chunkManager: ChunkManager, baseUrls: string[], key: string) {
   return chunkManager.memoize.getUncounted(
-      {'type': 'python:MultiscaleVolumeChunkSource', baseUrls, key},
+      {'baseUrls': baseUrls, 'key': key},
       () => sendHttpRequest(openShardedHttpRequest(baseUrls, `/neuroglancer/info/${key}`), 'json')
                 .then(
                     response =>

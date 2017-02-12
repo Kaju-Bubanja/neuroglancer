@@ -117,14 +117,14 @@ export function getShardedMeshSource(chunkManager: ChunkManager, parameters: Mes
   return MeshSource.get(chunkManager, parameters);
 }
 
-export function getMeshSource(chunkManager: ChunkManager, url: string) {
+export function getMeshSource(chunkManager: ChunkManager, url: string, lod: number = 0) {
   const [baseUrls, path] = parseSpecialUrl(url);
-  return getShardedMeshSource(chunkManager, {baseUrls, path, lod: 0});
+  return getShardedMeshSource(chunkManager, {baseUrls, path, lod});
 }
 
 export function getShardedVolume(chunkManager: ChunkManager, baseUrls: string[], path: string) {
   return chunkManager.memoize.getUncounted(
-      {'type': 'precomputed:MultiscaleVolumeChunkSource', baseUrls, path},
+      {'baseUrls': baseUrls, 'path': path},
       () => sendHttpRequest(openShardedHttpRequest(baseUrls, path + '/info'), 'json')
                 .then(
                     response =>

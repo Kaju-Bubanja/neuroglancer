@@ -1,8 +1,2 @@
-/node_modules/
-/dist/
-/build/
-/coverage/
-/npm-debug.log
-*.pyc
-__pycache__
-*.sw[pmn]
+.vscode/
+node_modules/

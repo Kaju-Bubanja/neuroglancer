@@ -17,15 +17,15 @@
 import {AvailableCapacity, CHUNK_MANAGER_RPC_ID, CHUNK_QUEUE_MANAGER_RPC_ID, ChunkPriorityTier, ChunkSourceParametersConstructor, ChunkState} from 'neuroglancer/chunk_manager/base';
 import {Disposable} from 'neuroglancer/util/disposable';
 import {LinkedListOperations} from 'neuroglancer/util/linked_list';
-import LinkedList0 from 'neuroglancer/util/linked_list.0';
-import LinkedList1 from 'neuroglancer/util/linked_list.1';
 import {StringMemoize} from 'neuroglancer/util/memoize';
 import {ComparisonFunction, PairingHeapOperations} from 'neuroglancer/util/pairing_heap';
+import {initializeSharedObjectCounterpart, registerSharedObject, RPC, SharedObject, SharedObjectCounterpart} from 'neuroglancer/worker_rpc';
+import {Signal} from 'signals';
 import PairingHeap0 from 'neuroglancer/util/pairing_heap.0';
 import PairingHeap1 from 'neuroglancer/util/pairing_heap.1';
-import {CancellationTokenSource, CancellationToken} from 'neuroglancer/util/cancellation';
-import {NullarySignal} from 'neuroglancer/util/signal';
-import {initializeSharedObjectCounterpart, registerSharedObject, RPC, SharedObject, SharedObjectCounterpart} from 'neuroglancer/worker_rpc';
+import LinkedList0 from 'neuroglancer/util/linked_list.0';
+import LinkedList1 from 'neuroglancer/util/linked_list.1';
+import {CancellablePromise, cancelPromise} from 'neuroglancer/util/promise';
 
 const DEBUG_CHUNK_UPDATES = false;
 
@@ -69,10 +69,9 @@ export class Chunk implements Disposable {
   backendOnly = false;
 
   /**
-   * Cancellation token used to cancel the pending download.  Set to undefined except when state !==
-   * DOWNLOADING.  This should not be accessed by code outside this module.
+   * Must be set to a non-null value by ChunkSource.prototype.download.
    */
-  downloadCancellationToken: CancellationTokenSource|undefined = undefined;
+  cancelDownload: (() => void)|null = null;
 
   initialize(key: string) {
     this.key = key;
@@ -157,16 +156,7 @@ export abstract class ChunkSourceBase extends SharedObject {
     return chunk;
   }
 
-  /**
-   * Begin downloading the specified the chunk.  The returned promise should resolve when the
-   * downloaded data has been successfully decoded and stored in the chunk, or rejected if the
-   * download or decoding fails.
-   *
-   * @param chunk Chunk to download.
-   * @param cancellationToken If this token is canceled, the download/decoding should be aborted if
-   * possible.
-   */
-  abstract download(chunk: Chunk, cancellationToken: CancellationToken): Promise<void>;
+  download(_chunk: Chunk) {}
 
   /**
    * Adds the specified chunk to the chunk cache.
@@ -208,29 +198,37 @@ export abstract class ChunkSource extends ChunkSourceBase {
   }
 }
 
-function startChunkDownload(chunk: Chunk) {
-  const downloadCancellationToken = chunk.downloadCancellationToken = new CancellationTokenSource();
-  chunk.source!.download(chunk, downloadCancellationToken)
-      .then(
-          () => {
-            if (chunk.downloadCancellationToken === downloadCancellationToken) {
-              chunk.downloadCancellationToken = undefined;
-              chunk.downloadSucceeded();
-            }
-          },
-          (error: any) => {
-            if (chunk.downloadCancellationToken === downloadCancellationToken) {
-              chunk.downloadCancellationToken = undefined;
-              chunk.downloadFailed(error);
-              console.log(`Error retrieving chunk ${chunk}: ${error}`);
-            }
-          });
-}
-
-function cancelChunkDownload(chunk: Chunk) {
-  const token = chunk.downloadCancellationToken!;
-  chunk.downloadCancellationToken = undefined;
-  token.cancel();
+export function handleChunkDownloadPromise<ChunkType extends Chunk, Result>(
+    chunk: ChunkType, promise: CancellablePromise<Result>,
+    chunkDecoder: (chunk: ChunkType, result: Result) => void) {
+  chunk.cancelDownload = function() {
+    chunk.cancelDownload = null;
+    cancelPromise(promise);
+  };
+  promise.then(
+      response => {
+        if (chunk.cancelDownload === null) {
+          // Download was cancelled.
+          return;
+        }
+        chunk.cancelDownload = null;
+        try {
+          chunkDecoder.call(undefined, chunk, response);
+          chunk.downloadSucceeded();
+        } catch (e) {
+          console.log(`Failed to decode chunk ${chunk}: ${e}`);
+          chunk.downloadFailed(e);
+        }
+      },
+      function(e) {
+        if (chunk.cancelDownload === null) {
+          // Download was cancelled.
+          return;
+        }
+        chunk.cancelDownload = null;
+        chunk.downloadFailed(e);
+        console.log(`Download failed for chunk ${chunk}`);
+      });
 }
 
 class ChunkPriorityQueue {
@@ -581,7 +579,7 @@ export class ChunkQueueManager extends SharedObjectCounterpart {
     function evict(chunk: Chunk) {
       switch (chunk.state) {
         case ChunkState.DOWNLOADING:
-          cancelChunkDownload(chunk);
+          chunk.cancelDownload!();
           break;
         case ChunkState.GPU_MEMORY:
           queueManager.freeChunkGPUMemory(chunk);
@@ -618,7 +616,7 @@ export class ChunkQueueManager extends SharedObjectCounterpart {
         return;
       }
       this.updateChunkState(promotionCandidate, ChunkState.DOWNLOADING);
-      startChunkDownload(promotionCandidate);
+      promotionCandidate.source!.download(promotionCandidate);
     }
   }
 
@@ -663,13 +661,7 @@ export class ChunkManager extends SharedObjectCounterpart {
 
   private updatePending: number|null = null;
 
-  recomputeChunkPriorities = new NullarySignal();
-
-  /**
-   * Dispatched immediately after recomputeChunkPriorities is dispatched.
-   * This signal should be used for handlers that depend on the result of another handler.
-   */
-  recomputeChunkPrioritiesLate = new NullarySignal();
+  recomputeChunkPriorities = new Signal();
 
   memoize = new StringMemoize();
 
@@ -694,7 +686,6 @@ export class ChunkManager extends SharedObjectCounterpart {
   private recomputeChunkPriorities_() {
     this.updatePending = null;
     this.recomputeChunkPriorities.dispatch();
-    this.recomputeChunkPrioritiesLate.dispatch();
     this.updateQueueState([ChunkPriorityTier.VISIBLE]);
   };
 
