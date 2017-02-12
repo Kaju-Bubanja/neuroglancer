@@ -1,5 +1,7 @@
 Code written during a software project by Kaju Bubanja with supervision by Thomas Templier, Hahnloser laboratory, Institute of Neuroinformatics, University of Zurich and ETH Zurich.
 
+Worked on Windows 8, Windows 10, with Oculus DK2, with Chromium VR build and Firefox nightly build.
+
 How to install:
 1. Follow instructions here: https://github.com/google/neuroglancer
 2. Download chromium and follow instructions here: https://webvr.info/get-chrome/

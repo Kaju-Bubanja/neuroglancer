@@ -67,6 +67,7 @@ export class DisplayContext extends RefCounted {
   gl: GL;
   vrDisplay: VRDisplay;
   vrPresentButton: any;
+  vrResetPoseButton: any;
   updateStarted = new Signal();
   updateFinished = new Signal();
   panels = new Set<RenderedPanel>();
@@ -102,17 +103,6 @@ export class DisplayContext extends RefCounted {
           that.vrDisplay.depthFar = 5000.0;
           let leftEye: VREyeParameters = that.vrDisplay.getEyeParameters('left');
           let rightEye: VREyeParameters = that.vrDisplay.getEyeParameters('right');
-          //that.width = Math.max(leftEye.renderWidth, rightEye.renderWidth);
-          //that.height = Math.max(leftEye.renderHeight, rightEye.renderHeight);
-
-          addButton("Reset Pose", "R", null, function () { that.vrDisplay.resetPose(); });
-
-          // Generally, you want to wait until VR support is confirmed and
-          // you know the user has a VRDisplay capable of presenting connected
-          // before adding UI that advertises VR features.
-          if (that.vrDisplay.capabilities.canPresent) {
-            that.vrPresentButton = addButton("Enter VR<br>(Experience is not perfectly calibrated<br>and might cause user discomfort)", "E", null, that.onVRRequestPresent.bind(that));
-          }
           // The UA may kick us out of VR present mode for any reason, so to
           // ensure we always know when we begin/end presenting we need to
           // listen for vrdisplaypresentchange events.

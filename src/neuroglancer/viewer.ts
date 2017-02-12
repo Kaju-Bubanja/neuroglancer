@@ -37,6 +37,7 @@ import {DataDisplayLayout, LAYOUTS} from 'neuroglancer/viewer_layouts';
 import {ViewerState} from 'neuroglancer/viewer_state';
 import {RPC} from 'neuroglancer/worker_rpc';
 import {Signal} from 'signals';
+import { addButton, removeButton } from 'neuroglancer/webvr-util';
 
 require('./viewer.css');
 require('./help_button.css');
@@ -217,6 +218,14 @@ export class Viewer extends RefCounted implements ViewerState {
 
   createDataDisplayLayout(element: HTMLElement) {
     let layoutCreator = getLayoutByName(this.layoutName.value)[1];
+    if(this.layoutName.value == "stereo" && navigator.getVRDisplays){
+      this.display.vrResetPoseButton = addButton("Reset Pose", "R", null, () => { this.display.vrDisplay.resetPose(); });
+      this.display.vrPresentButton = addButton("Enter VR<br>(Experience is not perfectly calibrated<br>and might cause user discomfort)", "E", null, 
+                                                this.display.onVRRequestPresent.bind(this.display));
+    }else{
+      removeButton(this.display.vrResetPoseButton);
+      removeButton(this.display.vrPresentButton);
+    }
     this.dataDisplayLayout = layoutCreator(element, this);
   }
 

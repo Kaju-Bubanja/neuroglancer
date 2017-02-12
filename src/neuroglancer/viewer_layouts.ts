@@ -424,6 +424,9 @@ export const LAYOUTS:
       ['xy', (element, viewer) => new SinglePanelLayout(element, viewer)],
       ['3d', (element, viewer) => new SinglePerspectiveLayout(element, viewer)],
       ['stereo', (element, viewer) => new StereoPerspectivePanelLayout(element, viewer)],
+      // Slice layouts
+      /*
       ['stereo-1-slice', (element, viewer) => new StereoPerspectivePanel1SliceLayout(element, viewer)],
       ['stereo-3-slices', (element, viewer) => new StereoPerspectivePanel3SlicesLayout(element, viewer)],
+      */
     ];
